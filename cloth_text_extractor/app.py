@@ -9,10 +9,11 @@ import cloudinary
 import cloudinary.uploader
 
 # Cloudinary setup
+# ⬇️ Cloudinary config using Streamlit secrets
 cloudinary.config(
-    cloud_name="dihqeo7u0",
-    api_key="161543854645419",
-    api_secret="0yBGZpOy8-Rwk0Jq26Bstxl0BAw",
+    cloud_name=st.secrets["CLOUDINARY_CLOUD_NAME"],
+    api_key=st.secrets["CLOUDINARY_API_KEY"],
+    api_secret=st.secrets["CLOUDINARY_API_SECRET"]
     secure=True
 )
 
