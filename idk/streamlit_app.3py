@@ -1,0 +1,27 @@
+import streamlit as st
+from PIL import Image
+import pytesseract
+import pandas as pd
+import io
+
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+st.title("🧾 Clothing Product Text Extractor")
+
+uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
+
+if uploaded_file:
+    image = Image.open(uploaded_file)
+    st.image(image, caption="Uploaded Image", use_container_width=True)
+
+    if st.button("Extract Text"):
+        extracted_text = pytesseract.image_to_string(image)
+        st.text_area("📝 Extracted Text", value=extracted_text, height=300)
+
+        # Export to CSV
+        df = pd.DataFrame({"Extracted Text": [extracted_text]})
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_data = csv_buffer.getvalue()
+
+        st.download_button("📥 Download CSV", data=csv_data, file_name="product_text.csv", mime="text/csv")
