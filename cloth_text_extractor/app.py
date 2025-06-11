@@ -27,7 +27,7 @@ def format_collection_name(name):
 def extract_text_from_image(image_file):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
         image_file.save(tmp.name)
-        response = cloudinary.uploader.upload(tmp.name, ocr="adv_ocr")
+        response = cloudinary.uploader.upload(tmp.name, ocr="ocr")  # instead of "adv_ocr"
         text_data = response.get("info", {}).get("ocr", {}).get("adv_ocr", {}).get("data", [])
         if text_data and "textAnnotations" in text_data[0]:
             return text_data[0]["textAnnotations"][0]["description"]
