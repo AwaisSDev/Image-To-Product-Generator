@@ -1,40 +1,40 @@
 import streamlit as st
 from PIL import Image
-import pytesseract
-import pandas as pd
-import io
-import re
-import tempfile
 import cloudinary
 import cloudinary.uploader
+import pandas as pd
+import re
+import tempfile
 
-# Cloudinary setup
-# ⬇️ Cloudinary config using Streamlit secrets
+# Streamlit app title
+st.title("🧾 Bulk Clothing Product Extractor for Shopify (Cloud OCR Edition)")
+
+# Cloudinary configuration using Streamlit Secrets
 cloudinary.config(
     cloud_name=st.secrets["CLOUDINARY_CLOUD_NAME"],
     api_key=st.secrets["CLOUDINARY_API_KEY"],
-    api_secret=st.secrets["CLOUDINARY_API_SECRET"],
-    secure=True
+    api_secret=st.secrets["CLOUDINARY_API_SECRET"]
 )
 
-# Tesseract path
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-
-st.title("🧾 Bulk Clothing Product Extractor for Shopify")
-
+# File uploader
 uploaded_files = st.file_uploader("Upload product images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
+# Helper function to format collection name
 def format_collection_name(name):
     return name.lower().capitalize()
 
-def upload_image_to_cloudinary(pil_img):
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-        pil_img.save(tmp.name)
-        result = cloudinary.uploader.upload(tmp.name)
-        return result.get("secure_url", "")
+# Function to extract text using Cloudinary OCR
+def extract_text_from_image(image_file):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+        image_file.save(tmp.name)
+        response = cloudinary.uploader.upload(tmp.name, ocr="adv_ocr")
+        text_data = response.get("info", {}).get("ocr", {}).get("adv_ocr", {}).get("data", [])
+        if text_data and "textAnnotations" in text_data[0]:
+            return text_data[0]["textAnnotations"][0]["description"]
+    return ""
 
-def process_image(image):
-    text = pytesseract.image_to_string(image)
+# Image processing and CSV preparation
+def process_text(text):
     lines = [line.strip() for line in text.split("\n") if line.strip()]
     price = ''
     collection_name = ''
@@ -64,7 +64,7 @@ def process_image(image):
             continue
 
         if re.match(r'^[a-zA-Z]{1}-\d+', line):
-            continue
+            continue  # Skip product codes
 
         if any(word in lower for word in ["shirt", "dupatta", "trouser"]):
             piece_count += 1
@@ -75,9 +75,6 @@ def process_image(image):
     title_prefix = f"{piece_count}-Piece Digital Printed Lawn Suit" if piece_count else "Digital Printed Lawn Suit"
     full_title = f"{title_prefix} – {collection_name}" if collection_name else title_prefix
     handle = re.sub(r'\W+', '-', full_title.lower()).strip("-")
-
-    # Upload image to Cloudinary
-    image_url = upload_image_to_cloudinary(image)
 
     description = ""
     if product_details:
@@ -107,9 +104,9 @@ def process_image(image):
         "Variant Requires Shipping": "TRUE",
         "Variant Taxable": "TRUE",
         "Variant Barcode": "",
-        "Image Src": image_url,
-        "Image Position": "1",
-        "Image Alt Text": full_title,
+        "Image Src": "",
+        "Image Position": "",
+        "Image Alt Text": "",
         "Gift Card": "FALSE",
         "SEO Title": "",
         "SEO Description": "",
@@ -126,21 +123,23 @@ def process_image(image):
         "Google Shopping / Custom Label 2": "",
         "Google Shopping / Custom Label 3": "",
         "Google Shopping / Custom Label 4": "",
-        "Variant Image": image_url,
+        "Variant Image": "",
         "Variant Weight Unit": "kg",
         "Variant Tax Code": "",
         "Cost per item": "",
         "Status": "active"
     }
 
+# Main Streamlit logic
 if uploaded_files:
     st.success(f"{len(uploaded_files)} image(s) uploaded successfully!")
 
     products = []
-    for file in uploaded_files:
-        image = Image.open(file)
-        product_data = process_image(image)
-        products.append(product_data)
+    for uploaded_file in uploaded_files:
+        img = Image.open(uploaded_file)
+        text = extract_text_from_image(img)
+        product = process_text(text)
+        products.append(product)
 
     df = pd.DataFrame(products)
 
