@@ -1,10 +1,13 @@
 import streamlit as st
 from PIL import Image
-import cloudinary
-import cloudinary.uploader
+import pytesseract
 import pandas as pd
+import io
 import re
 import tempfile
+import cloudinary
+import cloudinary.uploader
+import uuid
 
 # Streamlit app title
 st.title("🧾 Bulk Clothing Product Extractor for Shopify (Cloud OCR Edition)")
@@ -16,25 +19,28 @@ cloudinary.config(
     api_secret=st.secrets["CLOUDINARY_API_SECRET"]
 )
 
-# File uploader
+# Tesseract path
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+st.title("🧾 Bulk Clothing Product Extractor for Shopify")
+
 uploaded_files = st.file_uploader("Upload product images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
-# Helper function to format collection name
 def format_collection_name(name):
     return name.lower().capitalize()
 
-# Function to extract text using Cloudinary OCR
-def extract_text_from_image(image_file):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-        image_file.save(tmp.name)
-        response = cloudinary.uploader.upload(tmp.name, ocr="ocr")  # instead of "adv_ocr"
-        text_data = response.get("info", {}).get("ocr", {}).get("adv_ocr", {}).get("data", [])
-        if text_data and "textAnnotations" in text_data[0]:
-            return text_data[0]["textAnnotations"][0]["description"]
-    return ""
+def upload_image_to_cloudinary(pil_img):
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        pil_img.save(tmp.name)
+        try:
+            result = cloudinary.uploader.upload(tmp.name)
+            return result.get("secure_url", "")
+        except Exception as e:
+            st.error(f"Cloudinary Upload Failed: {e}")
+            return ""
 
-# Image processing and CSV preparation
-def process_text(text):
+def process_image(image, unique_suffix):
+    text = pytesseract.image_to_string(image)
     lines = [line.strip() for line in text.split("\n") if line.strip()]
     price = ''
     collection_name = ''
@@ -64,7 +70,7 @@ def process_text(text):
             continue
 
         if re.match(r'^[a-zA-Z]{1}-\d+', line):
-            continue  # Skip product codes
+            continue
 
         if any(word in lower for word in ["shirt", "dupatta", "trouser"]):
             piece_count += 1
@@ -72,15 +78,24 @@ def process_text(text):
         elif in_care_section:
             care_instructions.append(f"• {line}")
 
+    if not collection_name:
+        collection_name = "Uncategorized"
+
     title_prefix = f"{piece_count}-Piece Digital Printed Lawn Suit" if piece_count else "Digital Printed Lawn Suit"
-    full_title = f"{title_prefix} – {collection_name}" if collection_name else title_prefix
-    handle = re.sub(r'\W+', '-', full_title.lower()).strip("-")
+    full_title = f"{title_prefix} – {collection_name}"
+    base_handle = re.sub(r'\W+', '-', full_title.lower()).strip("-")
+    handle = f"{base_handle}-{unique_suffix}"
+
+    image_url = upload_image_to_cloudinary(image)
 
     description = ""
     if product_details:
         description += "<strong>Product Details:</strong><br>" + "<br>".join(product_details) + "<br><br>"
     if care_instructions:
         description += "<strong>Care Instructions:</strong><br>" + "<br>".join(care_instructions)
+
+    if not price:
+        price = "4999"  # fallback price
 
     return {
         "Handle": handle,
@@ -93,7 +108,7 @@ def process_text(text):
         "Published": "TRUE",
         "Option1 Name": "Title",
         "Option1 Value": full_title,
-        "Variant SKU": "",
+        "Variant SKU": f"SKU-{handle[:12]}",
         "Variant Grams": "",
         "Variant Inventory Tracker": "",
         "Variant Inventory Qty": 10,
@@ -104,9 +119,9 @@ def process_text(text):
         "Variant Requires Shipping": "TRUE",
         "Variant Taxable": "TRUE",
         "Variant Barcode": "",
-        "Image Src": "",
-        "Image Position": "",
-        "Image Alt Text": "",
+        "Image Src": image_url,
+        "Image Position": "1",
+        "Image Alt Text": full_title,
         "Gift Card": "FALSE",
         "SEO Title": "",
         "SEO Description": "",
@@ -123,23 +138,21 @@ def process_text(text):
         "Google Shopping / Custom Label 2": "",
         "Google Shopping / Custom Label 3": "",
         "Google Shopping / Custom Label 4": "",
-        "Variant Image": "",
+        "Variant Image": image_url,
         "Variant Weight Unit": "kg",
         "Variant Tax Code": "",
         "Cost per item": "",
         "Status": "active"
     }
 
-# Main Streamlit logic
 if uploaded_files:
     st.success(f"{len(uploaded_files)} image(s) uploaded successfully!")
 
     products = []
-    for uploaded_file in uploaded_files:
-        img = Image.open(uploaded_file)
-        text = extract_text_from_image(img)
-        product = process_text(text)
-        products.append(product)
+    for i, file in enumerate(uploaded_files):
+        image = Image.open(file)
+        product_data = process_image(image, unique_suffix=str(uuid.uuid4())[:8])
+        products.append(product_data)
 
     df = pd.DataFrame(products)
 
